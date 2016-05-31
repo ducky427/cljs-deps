@@ -5,11 +5,14 @@
             [clojure.set :as cset]
             [clojure.string :as string]))
 
+(nodejs/enable-util-print!)
+
 (def fs (nodejs/require "fs"))
 (def request (nodejs/require "request"))
 (def xml2js (nodejs/require "xml2js"))
+(def path (nodejs/require "path"))
 
-(nodejs/enable-util-print!)
+(def out-dir "jars")
 
 (def default-repositories
   ["https://repo1.maven.org/maven2/"
@@ -36,16 +39,31 @@
          artifact "/"
          version "/")))
 
-(defn base-url [group artifact version]
+(defn base-url
+  [group artifact version]
   (str (short-base-url group artifact version)
        artifact "-"
        version))
 
-(defn base-pom-url [group artifact version]
+(defn base-jar-url
+  [group artifact version]
+  (str (base-url group artifact version) ".jar"))
+
+(defn base-pom-url
+  [group artifact version]
   (str (base-url group artifact version) ".pom"))
 
-(defn pom-urls [{:keys [group artifact version]}]
+(defn pom-urls
+  [{:keys [group artifact version]}]
   (map #(str % (base-pom-url group artifact version)) default-repositories))
+
+(defn jar-urls
+  [{:keys [group artifact version]}]
+  (map #(str % (base-jar-url group artifact version)) default-repositories))
+
+(defn jar-file-name
+  [{:keys [group artifact version]}]
+  (str group "-" artifact "-" version ".jar"))
 
 (defn- get-xml-text
   [n k]
@@ -91,7 +109,6 @@
              nf         #{}]
         (if (seq projects)
           (let [p             (first projects)
-                _             (println "Processing: " p)
                 deps          (if (contains? processed p)
                                 #{}
                                 (<! (get-project-dependencies p)))
@@ -112,6 +129,44 @@
           (>! out [all-deps nf]))))
     out))
 
+(defn download-dependency
+  [dep]
+  (let [out (chan)]
+    (go
+      (loop [urls  (jar-urls dep)]
+        (if (seq urls)
+          (let [url                    (first urls)
+                [error response body]  (<! (make-request url))]
+            #_(.. (.get request url)
+                (.pipe )
+                )
+            (if (= 200 (.-statusCode response))
+              (do
+                (println "Downloaded: " dep)
+                (.writeFileSync fs
+                                (.join path out-dir (jar-file-name dep))
+                                body
+                                "binary")
+                (>! out dep))
+              (recur (rest urls))))
+          (async/close! out))))
+    out))
+
+(defn download-dependencies
+  [xs]
+  (let [out (chan)]
+    (go
+      (loop [deps xs]
+        (if (seq deps)
+          (let [x (first deps)
+                y (<! (download-dependency x))]
+            (println x y)
+            (recur (rest deps)))
+          (async/close! out))
+        ))
+    out))
+
+
 (def proj  {:group "org.clojure" :artifact "clojurescript" :version "1.8.51"})
 #_(def proj {:group "org.clojure" :artifact "clojure" :version "1.8.0"})
 
@@ -121,6 +176,9 @@
     (let [[deps nf]  (<! (get-all-dependencies proj))]
       (println "Deps: " deps)
       (when (seq nf)
-        (println "Not found: " nf)))))
+        (println "Not found: " nf))
+      (<! (download-dependencies
+           (take 5
+                 (conj deps proj)))))))
 
 (set! *main-cli-fn* -main)
