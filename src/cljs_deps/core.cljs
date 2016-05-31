@@ -135,20 +135,14 @@
     (go
       (loop [urls  (jar-urls dep)]
         (if (seq urls)
-          (let [url                    (first urls)
-                [error response body]  (<! (make-request url))]
-            #_(.. (.get request url)
-                (.pipe )
-                )
-            (if (= 200 (.-statusCode response))
-              (do
-                (println "Downloaded: " dep)
-                (.writeFileSync fs
-                                (.join path out-dir (jar-file-name dep))
-                                body
-                                "binary")
-                (>! out dep))
-              (recur (rest urls))))
+          (let [url    (first urls)
+                f-name (.join path out-dir (jar-file-name dep))
+                stream (.. (.get request url)
+                           (on "response" (fn [response]
+                                            (println (.-statusCode response))))
+                           (pipe (.createWriteStream fs f-name)))]
+            (.on stream "finish" (fn []
+                                   (put! out dep))))
           (async/close! out))))
     out))
 
@@ -160,10 +154,10 @@
         (if (seq deps)
           (let [x (first deps)
                 y (<! (download-dependency x))]
-            (println x y)
+            (when-not y
+              (println "Unable to download: " x))
             (recur (rest deps)))
-          (async/close! out))
-        ))
+          (async/close! out))))
     out))
 
 
@@ -179,6 +173,7 @@
         (println "Not found: " nf))
       (<! (download-dependencies
            (take 5
-                 (conj deps proj)))))))
+                 (conj deps proj
+                       {:group "reagent" :artifact "reagent" :version "0.6.0-alpha2"})))))))
 
 (set! *main-cli-fn* -main)
