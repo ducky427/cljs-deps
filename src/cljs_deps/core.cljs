@@ -87,33 +87,40 @@
     (go
       (loop [projects   projects
              all-deps   #{}
-             processed  #{}]
+             processed  #{}
+             nf         #{}]
         (if (seq projects)
           (let [p             (first projects)
                 _             (println "Processing: " p)
-                deps          (when-not (contains? processed p)
+                deps          (if (contains? processed p)
+                                #{}
                                 (<! (get-project-dependencies p)))
                 new-projects  (cset/union (rest projects) deps)
-                new-processed (conj processed p)]
+                new-processed (conj processed p)
+                nnf           (if (nil? deps)
+                                (conj nf p)
+                                nf)]
             (if deps
               (recur new-projects
                      (cset/union all-deps deps)
-                     new-processed)
+                     new-processed
+                     nnf)
               (recur new-projects
                      all-deps
-                     new-processed)))
-          (>! out all-deps))))
+                     new-processed
+                     nnf)))
+          (>! out [all-deps nf]))))
     out))
+
+(def proj  {:group "org.clojure" :artifact "clojurescript" :version "1.8.51"})
+#_(def proj {:group "org.clojure" :artifact "clojure" :version "1.8.0"})
 
 (defn -main
   []
   (go
-    (let [x  (<! (get-all-dependencies
-                  {:group "org.clojure"
-                   :artifact "clojurescript"
-                   :version "1.8.51"}))]
-      (if x
-        (println x)
-        (println "dep not found")))))
+    (let [[deps nf]  (<! (get-all-dependencies proj))]
+      (println "Deps: " deps)
+      (when (seq nf)
+        (println "Not found: " nf)))))
 
 (set! *main-cli-fn* -main)
