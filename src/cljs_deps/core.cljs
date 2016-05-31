@@ -52,7 +52,7 @@
   (get-in n [k 0]))
 
 (def ^:private deps-xform (comp
-                           (remove #(= (:scope %) [:test]))
+                           (remove #(= (:scope %) ["test"]))
                            #_(remove #(= (:artifactId %) ["clojure"]))
                            (map (fn [x]
                                   {:group (get-xml-text x :groupId)
