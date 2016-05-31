@@ -1,0 +1,16 @@
+{
+  "name": "cljs-deps",
+  "version": "0.1.0",
+  "private": "true",
+  "engines": {
+    "node": "5.x.x"
+  },
+  "dependencies": {
+    "request": "2.72.0",
+    "xml2js": "0.4.16"
+  },
+  "devDependencies": {
+    "source-map-support": "0.4.0",
+    "ws": "1.1.0"
+  }
+}
