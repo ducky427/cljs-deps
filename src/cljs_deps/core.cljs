@@ -15,8 +15,8 @@
 (def out-dir "jars")
 
 (def default-repositories
-  ["https://repo1.maven.org/maven2/"
-   "https://clojars.org/repo/"])
+  {:maven  "https://repo1.maven.org/maven2/"
+   :clojars "https://clojars.org/repo/"})
 
 (defn make-request
   [url]
@@ -55,11 +55,14 @@
 
 (defn pom-urls
   [{:keys [group artifact version]}]
-  (map #(str % (base-pom-url group artifact version)) default-repositories))
+  (map (fn [[k v]]
+         {:url (str v (base-pom-url group artifact version))
+          :repo k})
+       default-repositories))
 
-(defn jar-urls
-  [{:keys [group artifact version]}]
-  (map #(str % (base-jar-url group artifact version)) default-repositories))
+(defn jar-url
+  [{:keys [group artifact version repo]}]
+  (str (repo default-repositories) (base-jar-url group artifact version)))
 
 (defn jar-file-name
   [{:keys [group artifact version]}]
@@ -89,11 +92,12 @@
     (go
       (loop [urls  (pom-urls project)]
         (if (seq urls)
-          (let [url                    (first urls)
+          (let [{:keys [url repo]}     (first urls)
                 [error response body]  (<! (make-request url))]
             (if (= 200 (.-statusCode response))
-              (>! out (parse-dependencies
-                       (<! (parse-xml body))))
+              (>! out [repo
+                       (parse-dependencies
+                        (<! (parse-xml body)))])
               (recur (rest urls))))
           (async/close! out))))
     out))
@@ -104,46 +108,50 @@
         projects #{project}]
     (go
       (loop [projects   projects
-             all-deps   #{}
              processed  #{}
              nf         #{}]
         (if (seq projects)
           (let [p             (first projects)
-                deps          (if (contains? processed p)
-                                #{}
+                [repo deps]   (if (or (contains? processed p)
+                                      (contains? nf p))
+                                [nil #{}]
                                 (<! (get-project-dependencies p)))
-                new-projects  (cset/union (rest projects) deps)
-                new-processed (conj processed p)
+                new-processed (if repo
+                                (conj processed (assoc p :repo repo))
+                                processed)
                 nnf           (if (nil? deps)
                                 (conj nf p)
                                 nf)]
-            (if deps
-              (recur new-projects
-                     (cset/union all-deps deps)
-                     new-processed
-                     nnf)
-              (recur new-projects
-                     all-deps
-                     new-processed
-                     nnf)))
-          (>! out [all-deps nf]))))
+            (recur (cset/union (rest projects) deps)
+                   new-processed
+                   nnf))
+          (>! out [nf processed]))))
     out))
+
+(defn- ^boolean file-exists
+  [f]
+  (try
+    (do
+      (.statSync fs f)
+      true)
+    (catch js/Object e
+      false)))
 
 (defn download-dependency
   [dep]
   (let [out (chan)]
     (go
-      (loop [urls  (jar-urls dep)]
-        (if (seq urls)
-          (let [url    (first urls)
-                f-name (.join path out-dir (jar-file-name dep))
-                stream (.. (.get request url)
-                           (on "response" (fn [response]
-                                            (println (.-statusCode response))))
-                           (pipe (.createWriteStream fs f-name)))]
-            (.on stream "finish" (fn []
-                                   (put! out dep))))
-          (async/close! out))))
+      (let [url    (jar-url dep)
+            f-name (.join path out-dir (jar-file-name dep))]
+        (if (file-exists f-name)
+          (>! out dep)
+          (.. (.get request url)
+              (on "response" (fn [response]
+                               #_(println (.-statusCode response))))
+              (pipe (.createWriteStream fs f-name))
+              (on "finish" (fn []
+                             (println "Downloaded: " dep)
+                             (put! out dep)))))))
     out))
 
 (defn download-dependencies
@@ -161,19 +169,18 @@
     out))
 
 
-(def proj  {:group "org.clojure" :artifact "clojurescript" :version "1.8.51"})
+#_(def proj  {:group "org.clojure" :artifact "clojurescript" :version "1.8.51"})
 #_(def proj {:group "org.clojure" :artifact "clojure" :version "1.8.0"})
+(def proj {:group "reagent" :artifact "reagent" :version "0.6.0-alpha2"})
 
 (defn -main
   []
   (go
-    (let [[deps nf]  (<! (get-all-dependencies proj))]
-      (println "Deps: " deps)
+    (let [[nf processed]  (<! (get-all-dependencies proj))]
       (when (seq nf)
         (println "Not found: " nf))
-      (<! (download-dependencies
-           (take 5
-                 (conj deps proj
-                       {:group "reagent" :artifact "reagent" :version "0.6.0-alpha2"})))))))
+      (println "To download: " processed)
+      (println "Number of jars to download: "(count processed))
+      (<! (download-dependencies processed)))))
 
 (set! *main-cli-fn* -main)
