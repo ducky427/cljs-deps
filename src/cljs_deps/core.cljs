@@ -1,7 +1,7 @@
 (ns cljs-deps.core
   (:require-macros [cljs.core.async.macros :refer [go]])
   (:require [cljs.nodejs :as nodejs]
-            [cljs.core.async :refer [put! chan <!] :as async]
+            [cljs.core.async :refer [put! chan <! >!] :as async]
             [clojure.set :as cset]
             [clojure.string :as string]))
 
