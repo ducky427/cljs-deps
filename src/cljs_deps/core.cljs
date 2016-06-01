@@ -168,7 +168,6 @@
           (async/close! out))))
     out))
 
-
 #_(def proj  {:group "org.clojure" :artifact "clojurescript" :version "1.8.51"})
 #_(def proj {:group "org.clojure" :artifact "clojure" :version "1.8.0"})
 (def proj {:group "reagent" :artifact "reagent" :version "0.6.0-alpha2"})
@@ -180,7 +179,7 @@
       (when (seq nf)
         (println "Not found: " nf))
       (println "To download: " processed)
-      (println "Number of jars to download: "(count processed))
+      (println "Number of jars to download: " (count processed))
       (<! (download-dependencies processed)))))
 
 (set! *main-cli-fn* -main)
