@@ -12,8 +12,6 @@
 (def xml2js (nodejs/require "xml2js"))
 (def path (nodejs/require "path"))
 
-(def out-dir "jars")
-
 (def default-repositories
   {:maven  "https://repo1.maven.org/maven2/"
    :clojars "https://clojars.org/repo/"})
@@ -138,7 +136,7 @@
       false)))
 
 (defn download-dependency
-  [dep]
+  [dep out-dir]
   (let [out (chan)]
     (go
       (let [url    (jar-url dep)
@@ -155,13 +153,13 @@
     out))
 
 (defn download-dependencies
-  [xs]
+  [xs out-dir]
   (let [out (chan)]
     (go
       (loop [deps xs]
         (if (seq deps)
           (let [x (first deps)
-                y (<! (download-dependency x))]
+                y (<! (download-dependency x out-dir))]
             (when-not y
               (println "Unable to download: " x))
             (recur (rest deps)))
@@ -172,6 +170,8 @@
 #_(def proj {:group "org.clojure" :artifact "clojure" :version "1.8.0"})
 (def proj {:group "reagent" :artifact "reagent" :version "0.6.0-alpha2"})
 
+(def out-dir "jars")
+
 (defn -main
   []
   (go
@@ -180,6 +180,6 @@
         (println "Not found: " nf))
       (println "To download: " processed)
       (println "Number of jars to download: " (count processed))
-      (<! (download-dependencies processed)))))
+      (<! (download-dependencies processed out-dir)))))
 
 (set! *main-cli-fn* -main)
